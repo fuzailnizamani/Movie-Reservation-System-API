@@ -15,7 +15,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "gp": "^0.0.1",
-    "node-cron": "^4.6.0"
+    "node-cron": "^4.6.0",
+    "stripe": "^22.6.0"
   },
   "devDependencies": {
     "node-pg-migrate": "^9.0.0"

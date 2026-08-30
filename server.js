@@ -1,9 +1,67 @@
+require('dotenv').config();
 const express = require('express');
 const db = require('./db');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 require('./worker');
 
 const app = express();
+
+app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'payment_intent.succeeded') {
+    const paymentIntent = event.data.object;
+
+    const reservationId = paymentIntent.metadata.reservation_id;
+
+    const client = await db.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `UPDATE reservations
+         SET status = 'confirmed'
+         WHERE id = $1`,
+        [reservationId]
+      );
+
+      await client.query(
+        `UPDATE showtime_seats
+         SET status = 'booked'
+         WHERE reservation_id = $1`,
+        [reservationId]
+      );
+
+      await client.query('COMMIT');
+
+      console.log(`Reservation ${reservationId} confirmed.`);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Database finalization failed:', error);
+    } finally {
+      client.release();
+    }
+  }
+
+  res.json({ received: true });
+});
+
+
 app.use(express.json());
 
 // Test route to verify the connection
@@ -139,6 +197,56 @@ app.post('/reservations', async (req, res) => {
     });
   } finally {
     client.release();
+  }
+});
+
+app.post('/create-payment-intent', async (req, res) => {
+  const { reservationId } = req.body;
+
+  try {
+    // 1. Check that the reservation still exists
+    const query = `
+      SELECT id
+      FROM reservations
+      WHERE id = $1
+      AND status = 'pending_payment';
+    `;
+
+    const { rows } = await db.query(query, [reservationId]);
+
+    if (rows.length === 0) {
+      return res.status(400).json({
+        error: 'Reservation expired or unavailable.'
+      });
+    }
+
+    // 2. Create the Stripe PaymentIntent
+    // Amount is in cents: 1000 = $10.00
+    const amount = 1000;
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount,
+      currency: 'usd',
+      automatic_payment_methods: {
+        enabled: true,
+        allow_redirects: 'never'
+      },
+      metadata: {
+        reservation_id: reservationId
+      }
+    });
+
+    // 3. Send the client secret to the frontend
+    res.status(200).json({
+      clientSecret: paymentIntent.client_secret
+    });
+
+  } catch (error) {
+    console.error('Payment Intent creation failed:', error);
+
+    res.status(500).json({
+      error: 'Payment system failure.'
+    });
   }
 });
 
