@@ -1,70 +1,21 @@
 require('dotenv').config();
 const express = require('express');
 const db = require('./db');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+const reservationsRouter = require('./routes/reservationsRouter');
+const showtimesRouter = require('./routes/showtimesRouter');
+const webhookController = require('./controllers/webhookController');
 
 require('./worker');
 
 const app = express();
 
-app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  if (event.type === 'payment_intent.succeeded') {
-    const paymentIntent = event.data.object;
-
-    const reservationId = paymentIntent.metadata.reservation_id;
-
-    const client = await db.pool.connect();
-
-    try {
-      await client.query('BEGIN');
-
-      await client.query(
-        `UPDATE reservations
-         SET status = 'confirmed'
-         WHERE id = $1`,
-        [reservationId]
-      );
-
-      await client.query(
-        `UPDATE showtime_seats
-         SET status = 'booked'
-         WHERE reservation_id = $1`,
-        [reservationId]
-      );
-
-      await client.query('COMMIT');
-
-      console.log(`Reservation ${reservationId} confirmed.`);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Database finalization failed:', error);
-    } finally {
-      client.release();
-    }
-  }
-
-  res.json({ received: true });
-});
-
+app.post('/webhook', express.raw({ type: 'application/json' }), webhookController.handleWebhook);
 
 app.use(express.json());
+app.use(reservationsRouter);
+app.use('/showtimes', showtimesRouter);
 
-// Test route to verify the connection
 app.get('/movies', async (req, res) => {
   try {
     const { rows } = await db.query('SELECT * FROM movies');
@@ -72,181 +23,6 @@ app.get('/movies', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.get('/showtimes/:id/seats', async (req, res) => {
-  const showtimeId = req.params.id;
-
-  try {
-    const query = `
-      SELECT 
-        s.id AS seat_id,
-        s.row_letter,
-        s.seat_number,
-        ss.status
-      FROM showtime_seats ss
-      JOIN seats s ON ss.seat_id = s.id
-      WHERE ss.showtime_id = $1
-      ORDER BY s.row_letter, s.seat_number;
-    `;
-
-    const { rows } = await db.query(query, [showtimeId]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Showtime inventory not found.' });
-    }
-
-    res.status(200).json({
-      showtime_id: showtimeId,
-      inventory: rows
-    });
-
-  } catch (error) {
-    console.error('Inventory extraction failed:', error);
-    res.status(500).json({ error: 'System failure.' });
-  }
-});
-
-app.post('/reservations', async (req, res) => {
-  const { userId, showtimeId, seatIds } = req.body;
-
-  if (!seatIds || seatIds.length === 0) {
-    return res.status(400).json({
-      error: 'No seats selected.'
-    });
-  }
-
-  const client = await db.pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    // 1. Lock the requested seats
-    const lockQuery = `
-      SELECT seat_id, status
-      FROM showtime_seats
-      WHERE showtime_id = $1
-      AND seat_id = ANY($2)
-      FOR UPDATE;
-    `;
-
-    const { rows } = await client.query(
-      lockQuery,
-      [showtimeId, seatIds]
-    );
-
-    // 2. Make sure all requested seats exist
-    if (rows.length !== seatIds.length) {
-      throw new Error('One or more seats are invalid.');
-    }
-
-    // 3. Make sure all seats are available
-    const isAvailable = rows.every(
-      row => row.status === 'available'
-    );
-
-    if (!isAvailable) {
-      throw new Error(
-        'One or more seats are no longer available.'
-      );
-    }
-
-    // 4. Create the reservation
-    const insertQuery = `
-      INSERT INTO reservations (user_id, showtime_id, status)
-      VALUES ($1, $2, 'pending_payment')
-      RETURNING id;
-    `;
-
-    const reservationRes = await client.query(
-      insertQuery,
-      [userId, showtimeId]
-    );
-
-    const reservationId = reservationRes.rows[0].id;
-
-    // 5. Connect the seats to the reservation
-    const updateQuery = `
-      UPDATE showtime_seats
-      SET
-        status = 'pending_payment',
-        reservation_id = $1
-      WHERE showtime_id = $2
-      AND seat_id = ANY($3);
-    `;
-
-    await client.query(
-      updateQuery,
-      [reservationId, showtimeId, seatIds]
-    );
-
-    // 6. Save everything
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      message: 'Seats reserved. Awaiting payment.',
-      reservation_id: reservationId
-    });
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Reservation failed:', error);
-    res.status(409).json({
-      error: error.message
-    });
-  } finally {
-    client.release();
-  }
-});
-
-app.post('/create-payment-intent', async (req, res) => {
-  const { reservationId } = req.body;
-
-  try {
-    // 1. Check that the reservation still exists
-    const query = `
-      SELECT id
-      FROM reservations
-      WHERE id = $1
-      AND status = 'pending_payment';
-    `;
-
-    const { rows } = await db.query(query, [reservationId]);
-
-    if (rows.length === 0) {
-      return res.status(400).json({
-        error: 'Reservation expired or unavailable.'
-      });
-    }
-
-    // 2. Create the Stripe PaymentIntent
-    // Amount is in cents: 1000 = $10.00
-    const amount = 1000;
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount,
-      currency: 'usd',
-      automatic_payment_methods: {
-        enabled: true,
-        allow_redirects: 'never'
-      },
-      metadata: {
-        reservation_id: reservationId
-      }
-    });
-
-    // 3. Send the client secret to the frontend
-    res.status(200).json({
-      clientSecret: paymentIntent.client_secret
-    });
-
-  } catch (error) {
-    console.error('Payment Intent creation failed:', error);
-
-    res.status(500).json({
-      error: 'Payment system failure.'
-    });
   }
 });
 
