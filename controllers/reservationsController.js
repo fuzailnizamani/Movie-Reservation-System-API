@@ -2,7 +2,9 @@ const db = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const createReservation = async (req, res) => {
-  const { userId, showtimeId, seatIds } = req.body;
+  const { showtimeId, seatIds } = req.body;
+
+  const userId = req.user.userId;
 
   if (!seatIds || !Array.isArray(seatIds) || seatIds.length === 0) {
     return res.status(400).json({
