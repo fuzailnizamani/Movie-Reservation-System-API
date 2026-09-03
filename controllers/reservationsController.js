@@ -1,4 +1,5 @@
 const db = require('../db');
+const { get } = require('../routes/showtimesRouter');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const createReservation = async (req, res) => {
@@ -121,7 +122,86 @@ const createPaymentIntent = async (req, res) => {
   }
 };
 
+const getUserReservations = async (req, res) => {
+  const userId = req.user.userId;
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required.' });
+  }
+
+  try {
+    const query = `
+      SELECT * from reservations
+      where user_id = $1
+      order by created_at desc;
+    `;
+
+    const { rows } = await db.query(query, [userId]);
+    return res.status(200).json({ reservations: rows });
+
+  } catch (error) {
+    console.error('Failed to fetch user reservations:', error);
+    return res.status(500).json({ error: 'Failed to fetch reservations.' });
+  }
+};
+
+const getUserReservationById = async (req, res) => {
+  const userId = req.user.userId;
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required.' });
+  }
+  try {
+    const reservationId = req.params.id;
+    const query = `
+      SELECT 
+      reservations.id,
+      reservations.status,
+      reservations.created_at,
+      to_char(showtimes.start_time, 'HH12:MI AM') AS start_time,
+      to_char(showtimes.end_time, 'HH12:MI AM') AS end_time,
+      movies.title AS movie_name,
+      movies.duration_minutes,
+      json_agg(
+              seats.row_letter || seats.seat_number
+          ) FILTER (WHERE seats.id IS NOT NULL) AS seats
+      FROM reservations
+
+      LEFT JOIN showtimes 
+      ON reservations.showtime_id = showtimes.id
+
+      LEFT JOIN movies 
+      ON showtimes.movie_id = movies.id
+
+      LEFT JOIN showtime_seats 
+      ON reservations.id = showtime_seats.reservation_id
+
+      LEFT JOIN seats 
+      ON showtime_seats.seat_id = seats.id
+
+      WHERE reservations.id = $1 AND user_id = $2
+      GROUP BY    
+        reservations.id,
+          reservations.status,
+          reservations.created_at,
+          showtimes.start_time,
+          showtimes.end_time,
+          movies.title,
+          movies.duration_minutes
+      `;
+    const { rows } = await db.query(query, [reservationId, userId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Reservation not found.' });
+    }
+    return res.status(200).json({ reservation: rows[0] });
+  } catch (error) {
+    console.error('Failed to fetch reservation by ID:', error);
+    return res.status(500).json({ error: 'Failed to fetch reservation.' });
+  }
+}
+
 module.exports = {
   createReservation,
-  createPaymentIntent
+  createPaymentIntent,
+  getUserReservations,
+  getUserReservationById
+
 };
