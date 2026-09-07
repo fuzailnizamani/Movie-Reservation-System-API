@@ -6,7 +6,7 @@ const userAuthMiddleware = (req, res, next) => {
 
     const token = authHeader && authHeader.split(' ')[1];
 
-    if(!token) {
+    if (!token) {
         return res.status(401).json({ message: 'Access Denied: NO Token Provided' });
     }
 
@@ -21,5 +21,27 @@ const userAuthMiddleware = (req, res, next) => {
     }
 };
 
+const adminAuthMiddleware = (allowedRoles) => {
+    return (req, res, next) => {
+        try {
+            if (!req.user) {
+                return res.status(401).json({ message: 'Access Denied: No user information found' });
+            }
 
-module.exports = userAuthMiddleware;
+            // 2. Check if the user's role is in the allowed list
+            if (!allowedRoles.includes(req.user.role)) {
+                return res.status(403).json({ message: "Forbidden: You do not have permission" });
+            };
+
+            next();
+        } catch (error) {
+            console.error('Error in adminAuthMiddleware:', error);
+            return res.status(500).json({ message: 'Internal Server Error' });
+        }
+    }
+}
+
+module.exports = {
+    userAuthMiddleware,
+    adminAuthMiddleware
+};

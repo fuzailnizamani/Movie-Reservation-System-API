@@ -1,5 +1,4 @@
 const db = require('../db');
-const { get } = require('../routes/showtimesRouter');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const createReservation = async (req, res) => {
@@ -196,7 +195,22 @@ const getUserReservationById = async (req, res) => {
     console.error('Failed to fetch reservation by ID:', error);
     return res.status(500).json({ error: 'Failed to fetch reservation.' });
   }
-}
+};
+
+// const cancelReservationByid = async (req, res) => {
+//   const userId = req.user.userId;
+//   if (!userId) {
+//     return res.status(400).json({ error: 'User ID is required.' });
+//   }
+//   const reservationId = req.params.id;
+
+//   try {
+
+//   } catch (error) {
+//     console.error('Failed to ')
+//     res.status(500).json({ error: 'Failed to '})
+//   }
+// };
 
 module.exports = {
   createReservation,

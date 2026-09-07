@@ -1,11 +1,11 @@
 require('dotenv').config();
 const express = require('express');
-const db = require('./db');
 
 const reservationsRouter = require('./routes/reservationsRouter');
 const showtimesRouter = require('./routes/showtimesRouter');
 const webhookController = require('./controllers/webhookController');
 const userRouter = require('./routes/userRouter');
+const movieRouter = require('./routes/moviesRouter');
 
 require('./worker');
 
@@ -16,6 +16,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), webhookControlle
 app.use(express.json());
 
 app.use('/api/auth', userRouter);
+app.use('/api', movieRouter);
 app.use('/api', reservationsRouter);
 app.use('/api/showtimes', showtimesRouter);
 
