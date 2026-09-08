@@ -16,7 +16,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), webhookControlle
 app.use(express.json());
 
 app.use('/api/auth', userRouter);
-app.use('/api', movieRouter);
+app.use('/api/movies', movieRouter);
 app.use('/api', reservationsRouter);
 app.use('/api/showtimes', showtimesRouter);
 
