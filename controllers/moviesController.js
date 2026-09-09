@@ -26,7 +26,6 @@ const createMovie = async (req, res) => {
 
 const getAllMovies = async (req, res) => {
     const { search, genre } = req.query;
-    console.log("Query parameters:", { search, genre });
 
     try {
         let query = 'SELECT * FROM movies';
@@ -65,7 +64,79 @@ const getAllMovies = async (req, res) => {
     }
 };
 
+const getMoviesById = async (req, res) => {
+    const moviesId = req.params.id;
+    try {
+        if(!moviesId){
+            return res.status(400).json( "Missing required parameter: 'id'." )
+        }
+
+        let query = 'SELECT * FROM movies WHERE Id = $1;';
+
+        const { rows } = await db.query(query, [moviesId]);
+
+        if(rows.length === 0){
+            return res.status(404).json({ message: 'Movies not found' });
+        }
+
+        return res.status(200).json({movie: rows[0]});
+    }catch (error){
+        console.error('Error getMoviesById', error);
+        return res.status(500).json({ error: 'Internal server error'});
+    }
+}
+
+// controllers/movieController.js
+const updateMovie = async (req, res) => {
+    const movieId = req.params.id;
+    const bodyFields = req.body;
+
+    try {
+        if (!bodyFields || Object.keys(bodyFields).length === 0) {
+            return res.status(400).json({ error: "No valid update fields provided." });
+        }
+
+        const updates = [];
+        const values = [];
+        let paramIndex = 1;
+
+        for (const [key, value] of Object.entries(bodyFields)) {
+            if (value !== undefined) {
+                updates.push(`${key} = $${paramIndex}`);
+                values.push(value);
+                paramIndex++;
+            }
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: "No valid update fields provided." });
+        }
+
+        values.push(movieId);
+        
+        const query = `
+            UPDATE movies 
+            SET ${updates.join(', ')} 
+            WHERE id = $${paramIndex} 
+            RETURNING *;
+        `;
+
+        const { rows } = await db.query(query, values);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'Movie not found' });
+        }
+
+        return res.status(200).json({ movie: rows[0] });
+    } catch (error) {
+        console.error('Error updateMovie:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
 module.exports = {
     createMovie,
-    getAllMovies
+    getAllMovies,
+    getMoviesById,
+    updateMovie
 };
