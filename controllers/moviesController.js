@@ -1,10 +1,9 @@
 const db = require('../db');
-const { post } = require('../routes/reservationsRouter');
 
 const createMovie = async (req, res) => {
     const { title, description, genre, duration_minutes, release_date, poster } = req.body;
     try {
-        console.log(title , description , genre, duration_minutes, release_date , poster);
+        console.log(title, description, genre, duration_minutes, release_date, poster);
         if (!title || !description || !genre || !duration_minutes || !release_date || !poster) {
             return res.status(400).json({ error: 'Missing required fields' });
         };
@@ -54,7 +53,7 @@ const getAllMovies = async (req, res) => {
 
         // Execute a single database call
         const { rows } = await db.query(query, values);
-        
+
         // Return a consistent JSON key
         return res.status(200).json({ movies: rows });
 
@@ -67,22 +66,22 @@ const getAllMovies = async (req, res) => {
 const getMoviesById = async (req, res) => {
     const moviesId = req.params.id;
     try {
-        if(!moviesId){
-            return res.status(400).json( "Missing required parameter: 'id'." )
+        if (!moviesId) {
+            return res.status(400).json("Missing required parameter: 'id'.")
         }
 
         let query = 'SELECT * FROM movies WHERE Id = $1;';
 
         const { rows } = await db.query(query, [moviesId]);
 
-        if(rows.length === 0){
+        if (rows.length === 0) {
             return res.status(404).json({ message: 'Movies not found' });
         }
 
-        return res.status(200).json({movie: rows[0]});
-    }catch (error){
+        return res.status(200).json({ movie: rows[0] });
+    } catch (error) {
         console.error('Error getMoviesById', error);
-        return res.status(500).json({ error: 'Internal server error'});
+        return res.status(500).json({ error: 'Internal server error' });
     }
 }
 
@@ -113,7 +112,7 @@ const updateMovie = async (req, res) => {
         }
 
         values.push(movieId);
-        
+
         const query = `
             UPDATE movies 
             SET ${updates.join(', ')} 
@@ -134,9 +133,79 @@ const updateMovie = async (req, res) => {
     }
 };
 
+const deleteMovie = async (req, res) => {
+    try {
+        const movieId = req.params.id;
+
+        if (!movieId) {
+            return res.status(400).json({ error: 'MovieIdID is required' });
+        }
+
+
+        // Check if movie exists
+        const movieResult = await pool.query(
+            `SELECT id, is_archived
+                FROM movies
+                WHERE id = $1`,
+            [movieId]
+        );
+
+        if (movieResult.rows.length === 0) {
+            return res.status(404).json({
+                message: 'Movie not found'
+            });
+        }
+
+        const movie = movieResult.rows[0];
+
+        // Already archived
+        if (movie.is_archived) {
+            return res.status(400).json({
+                message: 'Movie is already archived'
+            });
+        }
+
+        // Check for current or future showtimes
+        const showtimeResult = await pool.query(
+            `SELECT id
+                FROM showtimes
+                WHERE movie_id = $1
+                AND end_time > NOW()
+                LIMIT 1`,
+            [movieId]
+        );
+
+        if (showtimeResult.rows.length > 0) {
+            return res.status(400).json({
+                message: 'Movie cannot be archived because it has a current or upcoming showtime'
+            });
+        }
+
+        // Archive movie
+        await pool.query(
+            `UPDATE movies
+                SET is_archived = TRUE
+                WHERE id = $1`,
+            [movieId]
+        );
+
+        return res.status(200).json({
+            message: 'Movie archived successfully'
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        return res.status(500).json({
+            message: 'Internal server error'
+        });
+    }
+};
+
 module.exports = {
     createMovie,
     getAllMovies,
     getMoviesById,
-    updateMovie
+    updateMovie,
+    deleteMovie
 };
