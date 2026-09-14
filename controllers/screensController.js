@@ -188,10 +188,90 @@ const deleteScreen = async (req, res) => {
     }
 };
 
+const getScreenSeats = async (req, res) => {
+  try {
+    const screenId = req.params.screenId;
+
+    const result = await pool.query(
+      `SELECT id, row_letter, seat_number
+       FROM seats
+       WHERE screen_id = $1
+       ORDER BY row_letter, seat_number`,
+      [screenId]
+    );
+
+    return res.status(200).json({
+      screenId,
+      seats: result.rows
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      message: 'Internal server error'
+    });
+  }
+};
+
+
+const createScreenSeat = async (req, res) => {
+  try {
+    const screenId = req.params.screenId;
+    const { rowLetter, seatNumber } = req.body;
+
+    if (!rowLetter || seatNumber === undefined) {
+      return res.status(400).json({
+        message: 'rowLetter and seatNumber are required'
+      });
+    }
+
+    const screenResult = await pool.query(
+      `SELECT id
+       FROM screens
+       WHERE id = $1`,
+      [screenId]
+    );
+
+    if (screenResult.rows.length === 0) {
+      return res.status(404).json({
+        message: 'Screen not found'
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO seats (screen_id, row_letter, seat_number)
+       VALUES ($1, $2, $3)
+       RETURNING id, screen_id, row_letter, seat_number`,
+      [screenId, rowLetter, seatNumber]
+    );
+
+    return res.status(201).json({
+      message: 'Seat created successfully',
+      seat: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    if (error.code === '23505') {
+      return res.status(409).json({
+        message: 'This seat already exists on this screen'
+      });
+    }
+
+    return res.status(500).json({
+      message: 'Internal server error'
+    });
+  }
+};
+
 module.exports = {
     createScreen,
     getScreens,
     getScreenById,
     updateScreen,
-    deleteScreen
+    deleteScreen,
+    getScreenSeats,
+    createScreenSeat
 };

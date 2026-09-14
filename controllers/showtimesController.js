@@ -1,6 +1,5 @@
 const db = require('../db');
 
-
 const showtimesIdSeatsController = async (req, res) => {
     const showtimeId = req.params.id;
     try {

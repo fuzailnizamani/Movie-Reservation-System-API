@@ -7,7 +7,9 @@ const {
     getScreens,
     getScreenById,
     updateScreen,
-    deleteScreen
+    deleteScreen,
+    getScreenSeats,
+    createScreenSeat
 } = require("../controllers/screensController");
 
 
@@ -21,5 +23,8 @@ router.patch("/:id", updateScreen);
 
 router.delete("/:id", deleteScreen);
 
+router.get("/screens/:screenId/seats", getScreenSeats);
+
+router.post("/screens/:screenId/seats", createScreenSeat);
 
 module.exports = router;
