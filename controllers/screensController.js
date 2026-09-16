@@ -218,11 +218,15 @@ const getScreenSeats = async (req, res) => {
 const createScreenSeat = async (req, res) => {
   try {
     const screenId = req.params.screenId;
-    const { rowLetter, seatNumber } = req.body;
+    const { rowLetters, seatsPerRow } = req.body;
 
-    if (!rowLetter || seatNumber === undefined) {
+    if (
+      !Array.isArray(rowLetters) ||
+      rowLetters.length === 0 ||
+      seatsPerRow === undefined
+    ) {
       return res.status(400).json({
-        message: 'rowLetter and seatNumber are required'
+        message: 'rowLetters and seatsPerRow are required'
       });
     }
 
@@ -239,16 +243,24 @@ const createScreenSeat = async (req, res) => {
       });
     }
 
-    const result = await pool.query(
-      `INSERT INTO seats (screen_id, row_letter, seat_number)
-       VALUES ($1, $2, $3)
-       RETURNING id, screen_id, row_letter, seat_number`,
-      [screenId, rowLetter, seatNumber]
-    );
+    const createdSeats = [];
+
+    for (const rowLetter of rowLetters) {
+      for (let seatNumber = 1; seatNumber <= seatsPerRow; seatNumber++) {
+        const result = await pool.query(
+          `INSERT INTO seats (screen_id, row_letter, seat_number)
+           VALUES ($1, $2, $3)
+           RETURNING id, screen_id, row_letter, seat_number`,
+          [screenId, rowLetter, seatNumber]
+        );
+
+        createdSeats.push(result.rows[0]);
+      }
+    }
 
     return res.status(201).json({
-      message: 'Seat created successfully',
-      seat: result.rows[0]
+      message: 'Seats created successfully',
+      seats: createdSeats
     });
 
   } catch (error) {
@@ -256,7 +268,7 @@ const createScreenSeat = async (req, res) => {
 
     if (error.code === '23505') {
       return res.status(409).json({
-        message: 'This seat already exists on this screen'
+        message: 'One or more seats already exist on this screen'
       });
     }
 
