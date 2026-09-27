@@ -3,8 +3,16 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const createReservation = async (req, res) => {
   const { showtimeId, seatIds } = req.body;
-
   const userId = req.user.userId;
+
+  if (!showtimeId) {
+    return res.status(400).json({ error: 'Showtime ID is required.' });
+  }
+
+  const numShowtimeId = Number(showtimeId);
+  if (isNaN(numShowtimeId) || numShowtimeId <= 0 || !Number.isInteger(numShowtimeId)) {
+    return res.status(400).json({ error: 'Invalid showtime ID format.' });
+  }
 
   if (!seatIds || !Array.isArray(seatIds) || seatIds.length === 0) {
     return res.status(400).json({
@@ -12,10 +20,36 @@ const createReservation = async (req, res) => {
     });
   }
 
+  // Validate seat ID formats and check for duplicate seat IDs in the request
+  const uniqueSeatIds = new Set();
+  for (const seatId of seatIds) {
+    const numSeatId = Number(seatId);
+    if (isNaN(numSeatId) || numSeatId <= 0 || !Number.isInteger(numSeatId)) {
+      return res.status(400).json({ error: 'Invalid seat ID format.' });
+    }
+    if (uniqueSeatIds.has(numSeatId)) {
+      return res.status(400).json({ error: 'Duplicate seat IDs are not allowed.' });
+    }
+    uniqueSeatIds.add(numSeatId);
+  }
+
   const client = await db.pool.connect();
 
   try {
     await client.query('BEGIN');
+
+    // Verify if the showtime exists
+    const showtimeCheck = await client.query(
+      `SELECT id FROM showtimes WHERE id = $1`,
+      [showtimeId]
+    );
+
+    if (showtimeCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: 'Showtime not found.'
+      });
+    }
 
     const lockQuery = `
       SELECT seat_id, status
@@ -65,7 +99,10 @@ const createReservation = async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Reservation failed:', error);
-    return res.status(409).json({
+    
+    // Return 400 for bad seat requests or 409 for conflicts/availability issues
+    const status = error.message.includes('seats are') ? 409 : 500;
+    return res.status(status).json({
       error: error.message
     });
   } finally {
@@ -74,27 +111,51 @@ const createReservation = async (req, res) => {
 };
 
 const createPaymentIntent = async (req, res) => {
-  const { reservationId } = req.body;
+  const rawReservationId = req.body.reservationId || req.body.reservation_id;
+  const userId = req.user?.userId;
 
-  if (!reservationId) {
+  if (rawReservationId === undefined || rawReservationId === null || rawReservationId === '') {
     return res.status(400).json({
       error: 'Reservation ID is required.'
     });
   }
 
+  const numReservationId = Number(rawReservationId);
+  if (isNaN(numReservationId) || numReservationId <= 0 || !Number.isInteger(numReservationId)) {
+    return res.status(400).json({
+      error: 'Invalid reservation ID format.'
+    });
+  }
+
+  if (!userId) {
+    return res.status(401).json({
+      error: 'Authentication required.'
+    });
+  }
+
   try {
-    const query = `
-      SELECT id
-      FROM reservations
-      WHERE id = $1
-      AND status = 'pending_payment';
-    `;
+    const existenceCheck = await db.query(
+      `SELECT id, user_id, status FROM reservations WHERE id = $1`,
+      [numReservationId]
+    );
 
-    const { rows } = await db.query(query, [reservationId]);
+    if (existenceCheck.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Reservation not found.'
+      });
+    }
 
-    if (rows.length === 0) {
+    const reservation = existenceCheck.rows[0];
+
+    if (reservation.user_id !== userId) {
+      return res.status(403).json({
+        error: 'Unauthorized access to this reservation.'
+      });
+    }
+
+    if (reservation.status !== 'pending_payment') {
       return res.status(400).json({
-        error: 'Reservation expired or unavailable.'
+        error: 'This reservation cannot be paid in its current status.'
       });
     }
 
@@ -106,12 +167,25 @@ const createPaymentIntent = async (req, res) => {
         allow_redirects: 'never'
       },
       metadata: {
-        reservation_id: reservationId
+        reservation_id: numReservationId.toString()
       }
     });
 
+    await db.query(
+      `
+        UPDATE reservations
+        SET payment_intent_id = $1
+        WHERE id = $2
+          AND user_id = $3
+          AND status = 'pending_payment'
+      `,
+      [paymentIntent.id, numReservationId, userId]
+    );
+
     return res.status(200).json({
-      clientSecret: paymentIntent.client_secret
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      reservationId: numReservationId
     });
   } catch (error) {
     console.error('Payment Intent creation failed:', error);
@@ -148,8 +222,27 @@ const getUserReservationById = async (req, res) => {
   if (!userId) {
     return res.status(400).json({ error: 'User ID is required.' });
   }
+  const reservationId = req.params.id;
+  if (!reservationId || isNaN(Number(reservationId)) || Number(reservationId) <= 0) {
+    return res.status(400).json({ error: 'Invalid reservation ID format.' });
+  }
   try {
-    const reservationId = req.params.id;
+
+    // Check if the reservation exists in the database
+    const reservationCheck = await db.query(
+      `SELECT id, user_id FROM reservations WHERE id = $1`,
+      [reservationId]
+    );
+
+    if (reservationCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Reservation does not exist.' });
+    }
+
+    // Verify ownership
+    if (reservationCheck.rows[0].user_id !== userId) {
+      return res.status(403).json({ error: 'Unauthorized access to this reservation.' });
+    }
+
     const query = `
       SELECT 
       reservations.id,
@@ -197,25 +290,104 @@ const getUserReservationById = async (req, res) => {
   }
 };
 
-// const cancelReservationByid = async (req, res) => {
-//   const userId = req.user.userId;
-//   if (!userId) {
-//     return res.status(400).json({ error: 'User ID is required.' });
-//   }
-//   const reservationId = req.params.id;
+const cancelReservation = async (req, res) => {
+  const userId = req.user?.userId;
+  const reservationId = req.params.id;
 
-//   try {
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required.' });
+  }
 
-//   } catch (error) {
-//     console.error('Failed to ')
-//     res.status(500).json({ error: 'Failed to '})
-//   }
-// };
+  if (!reservationId) {
+    return res.status(400).json({ error: 'Reservation ID is required.' });
+  }
+
+  // Validate if reservationId is a valid positive integer ID
+  if (isNaN(Number(reservationId)) || Number(reservationId) <= 0) {
+    return res.status(400).json({ error: 'Invalid reservation ID format.' });
+  }
+
+  const client = await db.pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const reservationResult = await client.query(
+      `
+        SELECT id, user_id, status
+        FROM reservations
+        WHERE id = $1 AND user_id = $2
+        FOR UPDATE
+      `,
+      [reservationId, userId]
+    );
+
+    if (reservationResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Reservation not found.' });
+    }
+
+    const reservation = reservationResult.rows[0];
+    const cancellableStatuses = ['pending_payment', 'confirmed', 'paid'];
+
+    if (reservation.status === 'cancelled') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Reservation is already cancelled.' });
+    }
+
+    if (reservation.status === 'expired') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This reservation has already expired and cannot be cancelled.' });
+    }
+
+    if (!cancellableStatuses.includes(reservation.status)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'This reservation cannot be cancelled in its current status.'
+      });
+    }
+
+    await client.query(
+      `
+        UPDATE showtime_seats
+        SET status = 'available',
+            reservation_id = NULL
+        WHERE reservation_id = $1
+      `,
+      [reservation.id]
+    );
+
+    await client.query(
+      `
+        UPDATE reservations
+        SET status = 'cancelled'
+        WHERE id = $1
+      `,
+      [reservation.id]
+    );
+
+    await client.query('COMMIT');
+
+    return res.status(200).json({
+      message: 'Reservation cancelled successfully.',
+      reservation_id: reservation.id,
+      status: 'cancelled',
+      refund_processed: false,
+      note: 'This version only releases the seats and marks the reservation as cancelled. No refund is processed.'
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Cancel reservation failed:', error);
+    return res.status(500).json({ error: 'Failed to cancel reservation.' });
+  } finally {
+    client.release();
+  }
+};
 
 module.exports = {
   createReservation,
   createPaymentIntent,
   getUserReservations,
-  getUserReservationById
-
+  getUserReservationById,
+  cancelReservation
 };

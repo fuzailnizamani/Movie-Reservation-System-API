@@ -10,7 +10,8 @@ cron.schedule('* * * * *', async () => {
     // Find reservations that have been pending for more than 10 minutes
     const expireQuery = `
       UPDATE reservations
-      SET status = 'expired'
+      SET status = 'expired' ,
+          payment_intent_id = NULL
       WHERE status = 'pending_payment'
       AND created_at < NOW() - INTERVAL '10 minutes'
       RETURNING id;

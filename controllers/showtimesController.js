@@ -4,6 +4,11 @@ const db = require('../db');
 const showtimesIdSeatsController = async (req, res) => {
     const showtimeId = req.params.id;
     try {
+        if (!Number.isInteger(Number(showtimeId)) || Number(showtimeId) <= 0) {
+            return res.status(400).json({
+                error: 'Invalid showtime ID.'
+            });
+        }
         const showtimeResult = await db.query(
             `SELECT id
              FROM showtimes
@@ -42,7 +47,7 @@ const showtimesIdSeatsController = async (req, res) => {
 // CREATE SHOWTIME
 // POST /showtimes
 const createShowtime = async (req, res) => {
-    const client = await db.connect();
+    const client = await db.pool.connect();
     let transactionStarted = false;
     try {
         const {
@@ -167,6 +172,54 @@ const getShowtimes = async (req, res) => {
             date,
             screenId
         } = req.query;
+
+        if (movieId) {
+            const numMovieId = Number(movieId);
+            if (isNaN(numMovieId) || numMovieId <= 0 || !Number.isInteger(numMovieId)) {
+                return res.status(400).json({
+                    message: 'Invalid movie ID.'
+                });
+            }
+
+            const movieCheck = await db.query(
+                `SELECT id FROM movies WHERE id = $1`,
+                [movieId]
+            );
+            if (movieCheck.rows.length === 0) {
+                return res.status(404).json({
+                    message: 'Movie does not exist'
+                });
+            }
+        }
+
+        if (screenId) {
+            const numScreenId = Number(screenId);
+            if (isNaN(numScreenId) || numScreenId <= 0 || !Number.isInteger(numScreenId)) {
+                return res.status(400).json({
+                    message: 'Invalid screen ID.'
+                });
+            }
+
+            const screenCheck = await db.query(
+                `SELECT id FROM screens WHERE id = $1`,
+                [screenId]
+            );
+            if (screenCheck.rows.length === 0) {
+                return res.status(404).json({
+                    message: 'Screen does not exist'
+                });
+            }
+        }
+
+        if (date) {
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (!dateRegex.test(date) || isNaN(Date.parse(date))) {
+                return res.status(400).json({
+                    message: 'Invalid date format. Use YYYY-MM-DD'
+                });
+            }
+        }
+        
         const values = [];
         const conditions = [];
         if (movieId) {
@@ -221,6 +274,11 @@ const getShowtimes = async (req, res) => {
 const getShowtimeById = async (req, res) => {
     try {
         const { id } = req.params;
+        if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+            return res.status(400).json({
+                error: 'Invalid showtime ID.'
+            });
+        }
         const { rows } = await db.query(
             `SELECT
                 st.id,
@@ -256,7 +314,7 @@ const getShowtimeById = async (req, res) => {
 // UPDATE SHOWTIME
 // PATCH /showtimes/:id
 const updateShowtime = async (req, res) => {
-    const client = await db.connect();
+    const client = await db.pool.connect();
     let transactionStarted = false;
     try {
         const { id } = req.params;
@@ -435,7 +493,7 @@ const updateShowtime = async (req, res) => {
 // DELETE SHOWTIME
 // DELETE /showtimes/:id
 const deleteShowtime = async (req, res) => {
-    const client = await db.connect();
+    const client = await db.pool.connect();
     let transactionStarted = false;
     try {
         const { id } = req.params;
@@ -495,10 +553,11 @@ const deleteShowtime = async (req, res) => {
     }
 };
 module.exports = {
+    showtimesIdSeatsController,
     createShowtime,
     getShowtimes,
     getShowtimeById,
     updateShowtime,
-    deleteShowtime,
-    showtimesIdSeatsController
+    deleteShowtime
+
 };

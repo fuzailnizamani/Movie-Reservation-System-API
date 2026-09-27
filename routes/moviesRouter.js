@@ -8,9 +8,11 @@ const { userAuthMiddleware, adminAuthMiddleware } = require('../middleware/authM
 router.use(userAuthMiddleware);
 
 router.post('/', adminAuthMiddleware(['admin']), createMovie);
+
 router.get('/', getAllMovies);
 router.get('/:id', getMoviesById);
-router.patch('/:id', updateMovie);
-router.delete('/movies/:id', deleteMovie);
+
+router.patch('/:id', adminAuthMiddleware(['admin']), updateMovie);
+router.delete('/:id', adminAuthMiddleware(['admin']), deleteMovie);
 
 module.exports = router;

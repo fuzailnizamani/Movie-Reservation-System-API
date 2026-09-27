@@ -5,10 +5,17 @@ const createScreen = async (req, res) => {
         // get data from req.body
         const { name, total_capacity } = req.body;
 
-        // check/validate data
-        if (!name || !total_capacity) {
+        // check/validate data for presence, avoiding falsy evaluation for 0
+        if (!name || total_capacity === undefined || total_capacity === null) {
             return res.status(400).json({
                 message: "Name and total_capacity are required"
+            });
+        }
+
+        const capacity = Number(total_capacity);
+        if (isNaN(capacity) || capacity <= 0) {
+            return res.status(400).json({
+                message: "Total capacity must be greater than 0"
             });
         }
 
@@ -21,7 +28,7 @@ const createScreen = async (req, res) => {
 
         const { rows } = await db.query(query, [
             name,
-            total_capacity
+            capacity
         ]);
 
         return res.status(201).json({
@@ -31,7 +38,7 @@ const createScreen = async (req, res) => {
     } catch (error) {
         console.error(error);
 
-        res.status(500).json({
+        return res.status(500).json({
             message: "Server error"
         });
     }
@@ -189,93 +196,114 @@ const deleteScreen = async (req, res) => {
 };
 
 const getScreenSeats = async (req, res) => {
-  try {
-    const screenId = req.params.screenId;
+    try {
+        const screenId = req.params.screenId;
 
-    const result = await pool.query(
-      `SELECT id, row_letter, seat_number
-       FROM seats
-       WHERE screen_id = $1
-       ORDER BY row_letter, seat_number`,
-      [screenId]
-    );
+        // Verify if the screen exists
+        const screenCheck = await db.query(
+            `SELECT id FROM screens WHERE id = $1`,
+            [screenId]
+        );
 
-    return res.status(200).json({
-      screenId,
-      seats: result.rows
-    });
+        if (screenCheck.rows.length === 0) {
+            return res.status(404).json({
+                message: 'Screen does not exist'
+            });
+        }
 
-  } catch (error) {
-    console.error(error);
+        const result = await db.query(
+            `SELECT id, row_letter, seat_number
+            FROM seats
+            WHERE screen_id = $1
+            ORDER BY row_letter, seat_number`,
+            [screenId]
+        );
 
-    return res.status(500).json({
-      message: 'Internal server error'
-    });
-  }
+        return res.status(200).json({
+            screenId,
+            seats: result.rows
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        return res.status(500).json({
+            message: 'Internal server error'
+        });
+    }
 };
 
 
 const createScreenSeat = async (req, res) => {
-  try {
-    const screenId = req.params.screenId;
-    const { rowLetters, seatsPerRow } = req.body;
+    try {
+        const screenId = req.params.screenId;
+        const { rowLetters, seatsPerRow } = req.body;
 
-    if (
-      !Array.isArray(rowLetters) ||
-      rowLetters.length === 0 ||
-      seatsPerRow === undefined
-    ) {
-      return res.status(400).json({
-        message: 'rowLetters and seatsPerRow are required'
-      });
-    }
+        if (
+            !rowLetters ||
+            !Array.isArray(rowLetters) ||
+            rowLetters.length === 0 ||
+            seatsPerRow === undefined ||
+            seatsPerRow === null
+        ) {
+            return res.status(400).json({
+                message: 'rowLetters and seatsPerRow are required'
+            });
+        }
 
-    const screenResult = await pool.query(
-      `SELECT id
+        const parsedSeatsPerRow = Number(seatsPerRow);
+        if (isNaN(parsedSeatsPerRow) || parsedSeatsPerRow <= 0) {
+            return res.status(400).json({
+                message: 'seatsPerRow must be greater than 0'
+            });
+        };
+
+        const screenResult = await db.query(
+            `SELECT id
        FROM screens
        WHERE id = $1`,
-      [screenId]
-    );
-
-    if (screenResult.rows.length === 0) {
-      return res.status(404).json({
-        message: 'Screen not found'
-      });
-    }
-
-    const createdSeats = [];
-
-    for (const rowLetter of rowLetters) {
-      for (let seatNumber = 1; seatNumber <= seatsPerRow; seatNumber++) {
-        const result = await pool.query(
-          `INSERT INTO seats (screen_id, row_letter, seat_number)
-           VALUES ($1, $2, $3)
-           RETURNING id, screen_id, row_letter, seat_number`,
-          [screenId, rowLetter, seatNumber]
+            [screenId]
         );
 
-        createdSeats.push(result.rows[0]);
-      }
+        if (screenResult.rows.length === 0) {
+            return res.status(404).json({
+                message: 'Screen not found'
+            });
+        }
+
+        const createdSeats = [];
+
+        for (const rowLetter of rowLetters) {
+            for (let seatNumber = 1; seatNumber <= seatsPerRow; seatNumber++) {
+                const result = await db.query(
+                    `INSERT INTO seats (screen_id, row_letter, seat_number)
+                        VALUES ($1, $2, $3)
+                        RETURNING id, screen_id, row_letter, seat_number`,
+                    [screenId, rowLetter, seatNumber]
+                );
+
+                createdSeats.push(result.rows[0]);
+            }
+        }
+
+        return res.status(201).json({
+            message: 'Seats created successfully',
+            seats: createdSeats
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        if (error.code === '23505') {
+            return res.status(409).json({
+                message: 'One or more seats already exist on this screen'
+            });
+        }
+
+        return res.status(500).json({
+            message: 'Internal server error'
+        });
     }
-
-    return res.status(201).json({
-      message: 'Seats created successfully',
-      seats: createdSeats
-    });
-
-  } catch (error) {
-    console.error(error);
-
-    if (error.code === '23505') {
-      return res.status(409).json({
-        message: 'One or more seats already exist on this screen'
-      });
-    }
-
-    return res.status(500).json({
-      message: 'Internal server error'
-    });
-  }
 };
 
 module.exports = {

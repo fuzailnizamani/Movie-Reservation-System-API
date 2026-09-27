@@ -9,6 +9,14 @@ const registerUser = async (req, res) => {
             error: 'Username, email, and password are required'
         });
     }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({
+            error: 'Invalid email format.'
+        });
+    }
+
     try {
         const existingUser = await db.query('select * from users where email = $1', [email]);
         if (existingUser.rows.length > 0) {
@@ -39,13 +47,19 @@ const loginUser = async (req, res) => {
                 error: 'Email and password are required'
             });
         }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                error: 'Invalid email format.'
+            });
+        }
+
         const query = 'select * from users where email = $1 ';
         const { rows } = await db.query(query, [email]);
         if (rows.length === 0) {
             return res.status(401).json({ error: 'Invalid email' });
         }
-
-
 
         const user = rows[0];
 
