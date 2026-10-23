@@ -1,68 +1,63 @@
 # Dependencies
 node_modules/
-jspm_packages/
-web_modules/
-
-# Debugging and logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-
-# Diagnostic reports
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-
-# Runtime data and process IDs
-pids
-*.pid
-*.seed
-*.pid.lock
+client/node_modules/
 
 # Environment variables and secrets
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 *.env
+payment.html
 
-# Testing and coverage outputs
-coverage/
-*.lcov
-.nyc_output
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
 
-# Build and bundling outputs
+# Build output
 dist/
 build/
 .next/
 out/
-.nuxt/
-.vuepress/dist
-.serverless/
 
-# Cache files
+# Tool caches
+.npm/
 .eslintcache
-.npm
-.parcel-cache
+.parcel-cache/
 .cache/
-.typescript
 *.tsbuildinfo
 
-# IDEs and Editors
-.vscode/
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Runtime files
+pids/
+*.pid
+*.pid.lock
 
-# Operating System files
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+
+# Local editor and OS files
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
 
+# Local database dumps and backups
+*.sql.gz
+*.dump
+*.backup
+*.bak
 
+# Local certificates and private keys
+*.pem
+*.key
+*.p12
+*.pfx
 
-payment.html
+# Optional local tooling files
+.nyc_output/
