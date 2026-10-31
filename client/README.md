@@ -8,7 +8,7 @@ React 18 + Vite frontend for the Movie Reservation System API.
 2. Copy `server/.env.example` to `server/.env` and set the PostgreSQL, JWT, and Stripe secrets.
 3. Start the backend from `server/` with `npm run dev` (default: `http://localhost:3000`).
 4. In `client/`, install dependencies with `npm install`.
-5. Copy `client/.env.example` to `client/.env` and set `VITE_STRIPE_PUBLISHABLE_KEY` to your Stripe publishable key. Set `VITE_PROXY_TARGET` if the backend is not on port 3000.
+5. Copy `client/.env.example` to `client/.env` and set `VITE_STRIPE_PUBLISHABLE_KEY` to your Stripe publishable key. Set `VITE_PROXY_TARGET` if the backend is not on port 3000. For the Vercel deployment, set `VITE_API_BASE_URL=https://movie-reservation-system-api.onrender.com/api`; keep `/api` for local development.
 6. Run `npm run dev` from `client/` and open the URL printed by Vite.
 
 Vite proxies `/api` requests to the backend, so local development does not require CORS configuration. The frontend contains no Stripe secret key. Use Stripe test credentials only in development.
