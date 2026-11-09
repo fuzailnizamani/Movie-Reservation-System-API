@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { ArrowLeft, Clapperboard } from "lucide-react";
 import useAuth from "../hooks/useAuth";
 import { errorMessage } from "../api/axiosClient";
 import Button from "../components/ui/Button";
+import Loader from "../components/ui/Loader";
 
 const schema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -14,15 +15,24 @@ const schema = z.object({
 });
 
 export default function LoginPage() {
-  const { signIn } = useAuth();
+  const { signIn, isAuthenticated, hydrated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm({ resolver: zodResolver(schema) });
+
+  if (!hydrated) return <Loader label="Preparing your account…" />;
+  if (isAuthenticated) {
+    return (
+      <Navigate
+        to={location.state?.from?.pathname || "/reservations"}
+        replace
+      />
+    );
+  }
 
   const submit = async (values) => {
     try {

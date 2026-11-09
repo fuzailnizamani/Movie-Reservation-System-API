@@ -363,6 +363,8 @@ img { display: block; max-width: 100%; }
 .footer-grid h3 { margin: 2px 0 7px; color: var(--text); font-size: 11px; }
 .footer-grid a:not(.brand) { color: var(--secondary); font-size: 11px; }
 .footer-grid a:hover { color: white; }
+.footer-action { padding: 0; border: 0; color: var(--secondary); background: transparent; font: inherit; font-size: 11px; cursor: pointer; }
+.footer-action:hover { color: white; }
 .social-links { display: flex; gap: 13px; }
 .social-links a { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid var(--line); border-radius: 50%; }
 .footer-bottom { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-block: 14px; color: var(--muted); font-size: 9px; }

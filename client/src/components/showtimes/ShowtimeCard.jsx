@@ -16,6 +16,7 @@ export default function ShowtimeCard({ showtime }) {
     hour: "numeric",
     minute: "2-digit",
     timeZone: SHOWTIME_TIME_ZONE,
+    hour12: true,
   }).format(start);
   const startDate = new Intl.DateTimeFormat(undefined, {
     weekday: "short",
